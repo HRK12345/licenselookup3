@@ -21,45 +21,69 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'Query is required' });
   }
 
-  // For testing, return mock data if no ScrapingBee key
   if (!process.env.SCRAPINGBEE_API_KEY) {
     return res.json({
       success: false,
-      error: 'ScrapingBee API key not configured',
-      message: 'API key missing'
+      error: 'ScrapingBee API key not configured'
     });
   }
 
   try {
-    console.log(`Searching CA database for: ${query}`);
+    console.log(`Debugging CA search for: ${query} (${searchType})`);
     
-    // Simple CA search URL
-    const searchUrl = `https://www2.cslb.ca.gov/OnlineServices/CheckLicenseII/CheckLicense.aspx`;
-
-    // Use ScrapingBee to get the search results
-    const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
+    // Step 1: Get the initial search form
+    const formResponse = await axios.get('https://app.scrapingbee.com/api/v1/', {
       params: {
         'api_key': process.env.SCRAPINGBEE_API_KEY,
-        'url': searchUrl,
+        'url': 'https://www2.cslb.ca.gov/OnlineServices/CheckLicenseII/CheckLicense.aspx',
         'render_js': 'true',
-        'wait': 3000
+        'wait': 2000,
+        'premium_proxy': 'true'
       }
     });
 
-    // For now, return a test response to verify API is working
-    return res.json({ 
-      success: false,
-      message: 'API is working but no scraping logic yet',
-      query: query,
-      scrapingbee_response_length: response.data.length
+    console.log('Form page length:', formResponse.data.length);
+    
+    // Parse the form to get hidden fields
+    const $form = cheerio.load(formResponse.data);
+    
+    // Get form state
+    const viewState = $form('#__VIEWSTATE').val();
+    const viewStateGenerator = $form('#__VIEWSTATEGENERATOR').val();
+    const eventValidation = $form('#__EVENTVALIDATION').val();
+    
+    console.log('Form fields found:', {
+      viewState: viewState ? 'yes' : 'no',
+      viewStateGenerator: viewStateGenerator ? 'yes' : 'no',
+      eventValidation: eventValidation ? 'yes' : 'no'
     });
 
-  } catch (error) {
-    console.error('CA search error:', error.message);
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Search failed',
-      message: error.message
+    // Build form data for submission
+    const formData = new URLSearchParams();
+    if (viewState) formData.append('__VIEWSTATE', viewState);
+    if (viewStateGenerator) formData.append('__VIEWSTATEGENERATOR', viewStateGenerator);
+    if (eventValidation) formData.append('__EVENTVALIDATION', eventValidation);
+    
+    // Add search query
+    if (searchType === 'license') {
+      formData.append('txtLicnum', query);
+    } else {
+      formData.append('txtContractorName', query);
+    }
+    formData.append('btnSubmit', 'Search');
+
+    console.log('Submitting search with data:', Object.fromEntries(formData));
+
+    // Step 2: Submit the search
+    const searchResponse = await axios.post('https://app.scrapingbee.com/api/v1/', {
+      'api_key': process.env.SCRAPINGBEE_API_KEY,
+      'url': 'https://www2.cslb.ca.gov/OnlineServices/CheckLicenseII/CheckLicense.aspx',
+      'render_js': 'true',
+      'wait': 3000,
+      'premium_proxy': 'true',
+      'post_data': formData.toString(),
+      'headers': JSON.stringify({
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      })
     });
-  }
-};
