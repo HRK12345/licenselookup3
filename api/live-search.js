@@ -21,66 +21,37 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'Query is required' });
   }
 
+  // For testing, return mock data if no ScrapingBee key
+  if (!process.env.SCRAPINGBEE_API_KEY) {
+    return res.json({
+      success: false,
+      error: 'ScrapingBee API key not configured',
+      message: 'API key missing'
+    });
+  }
+
   try {
     console.log(`Searching CA database for: ${query}`);
     
-    // Build the search URL with query parameters
-    const searchUrl = new URL('https://www2.cslb.ca.gov/OnlineServices/CheckLicenseII/CheckLicense.aspx');
-    
-    if (searchType === 'license') {
-      searchUrl.searchParams.append('LicNum', query);
-    } else {
-      searchUrl.searchParams.append('ContractorName', query);
-    }
+    // Simple CA search URL
+    const searchUrl = `https://www2.cslb.ca.gov/OnlineServices/CheckLicenseII/CheckLicense.aspx`;
 
     // Use ScrapingBee to get the search results
     const response = await axios.get('https://app.scrapingbee.com/api/v1/', {
       params: {
         'api_key': process.env.SCRAPINGBEE_API_KEY,
-        'url': searchUrl.toString(),
+        'url': searchUrl,
         'render_js': 'true',
-        'wait': 3000,
-        'premium_proxy': 'true'
+        'wait': 3000
       }
     });
 
-    // Parse the HTML response
-    const $ = cheerio.load(response.data);
-    
-    // Check for contractor name (indicates results found)
-    const contractorName = $('#lblContractorName').text().trim();
-    
-    if (!contractorName) {
-      return res.json({ 
-        success: false, 
-        message: 'No license found in CA database',
-        query: query 
-      });
-    }
-
-    // Extract license data
-    const licenseData = {
-      contractor_name: contractorName,
-      business_name: $('#lblBusinessName').text().trim(),
-      license_number: $('#lblLicenseNumber').text().trim(),
-      status: $('#lblLicenseStatus').text().trim().toLowerCase(),
-      license_type: $('#lblLicenseType').text().trim(),
-      issue_date: $('#lblIssueDate').text().trim(),
-      expiration_date: $('#lblExpirationDate').text().trim(),
-      address: $('#lblAddress').text().trim(),
-      phone: $('#lblPhone').text().trim(),
-      
-      // Enhanced data
-      data_source: 'California Contractors State License Board',
-      last_scraped: new Date().toISOString(),
-      state: 'CA',
-      license_url: 'https://www2.cslb.ca.gov/OnlineServices/CheckLicenseII/CheckLicense.aspx'
-    };
-
+    // For now, return a test response to verify API is working
     return res.json({ 
-      success: true, 
-      data: licenseData,
-      source: 'live_ca_database'
+      success: false,
+      message: 'API is working but no scraping logic yet',
+      query: query,
+      scrapingbee_response_length: response.data.length
     });
 
   } catch (error) {
@@ -88,7 +59,7 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ 
       success: false, 
       error: 'Search failed',
-      message: 'Unable to access CA database at this time'
+      message: error.message
     });
   }
 };
