@@ -123,13 +123,13 @@ function LicenseSearch() {
 					</select>
 				</div>
 
-				<button
-					onClick={searchLicense}
-					disabled={loading}
-					className={`search-button ${loading ? "loading" : ""}`}
-				>
-					{loading ? "Searching..." : "Search License ($2.99)"}
-				</button>
+<button
+  onClick={searchLicense}
+  disabled={loading}
+  className={`search-button ${loading ? "loading" : ""}`}
+>
+  {loading ? "Verifying with CA Database..." : "Verify License ($2.99)"}
+</button>
 			</div>
 
 			{/* Results */}
