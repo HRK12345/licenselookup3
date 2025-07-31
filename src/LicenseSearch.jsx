@@ -17,6 +17,8 @@ function LicenseSearch() {
 		return years;
 	};
 
+
+
 	const searchLicense = async () => {
   if (!query.trim()) {
     alert("Please enter a contractor name or license number");
@@ -27,59 +29,81 @@ function LicenseSearch() {
   setHasSearched(true);
 
   try {
-    // Determine if query is a license number (all digits) or name
-    const isLicenseNumber = /^\d+$/.test(query.trim());
-    
-    console.log(`Searching for: ${query} (${isLicenseNumber ? 'license' : 'name'})`);
-    
-    const response = await fetch('/api/live-search', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query: query.trim(),
-        searchType: isLicenseNumber ? 'license' : 'name'
-      })
-    });
-    
-    const result = await response.json();
-    console.log('Search result:', result);
-    
-    if (result.success && result.data) {
-      // Check expiration date and update status
-      const today = new Date();
-      const expDate = new Date(result.data.expiration_date);
-      if (expDate < today) {
-        result.data.status = 'expired';
-      }
+    // First try live CA database search
+    if (state === 'CA') {
+      console.log('Searching live CA database...');
       
-      setResults([result.data]);
+      const isLicenseNumber = /^\d+$/.test(query.trim());
       
-      // Log the search to Supabase
-      await supabase.from("search_logs").insert([
-        {
+      const response = await fetch('/api/live-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: query.trim(),
+          searchType: isLicenseNumber ? 'license' : 'name'
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        // Check expiration date
+        const today = new Date();
+        const expDate = new Date(result.data.expiration_date);
+        if (expDate < today) {
+          result.data.status = 'expired';
+        }
+        
+        setResults([result.data]);
+        
+        // Log successful search
+        await supabase.from("search_logs").insert([{
           search_query: query,
           state: state,
           results_found: 1,
           user_ip: "unknown",
-          search_type: "live_scrape"
-        },
-      ]);
-      
+          search_type: "live_ca_scrape"
+        }]);
+        
+        setLoading(false);
+        return;
+      }
+    }
+    
+    // Fallback: search your local database
+    console.log('Searching local database...');
+    const { data, error } = await supabase
+      .from("Licenses")
+      .select("*")
+      .eq("state", state)
+      .or(`license_number.ilike.%${query}%,contractor_name.ilike.%${query}%,business_name.ilike.%${query}%`)
+      .limit(10);
+
+    if (error) {
+      console.error("Search error:", error);
+      alert("Search failed. Please try again.");
     } else {
-      setResults([]);
-      
-      // Log failed search
-      await supabase.from("search_logs").insert([
-        {
-          search_query: query,
-          state: state,
-          results_found: 0,
-          user_ip: "unknown",
-          search_type: "live_scrape"
-        },
-      ]);
+      // Check expiration dates
+      if (data) {
+        const today = new Date();
+        data.forEach((license) => {
+          const expDate = new Date(license.expiration_date);
+          if (expDate < today) {
+            license.status = "expired";
+          }
+        });
+      }
+
+      setResults(data || []);
+
+      // Log search
+      await supabase.from("search_logs").insert([{
+        search_query: query,
+        state: state,
+        results_found: data?.length || 0,
+        user_ip: "unknown",
+        search_type: "local_database"
+      }]);
     }
     
   } catch (err) {
